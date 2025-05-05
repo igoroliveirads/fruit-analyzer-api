@@ -50,4 +50,4 @@ func getAverageColor(img image.Image) color.Color {
 		B: uint8(b / uint32(pixelCount) >> 8),
 		A: 255,
 	}
-} 
+}

@@ -20,7 +20,7 @@ type BananaAnalyzer struct {
 func NewBananaAnalyzer(logger *zap.Logger) *BananaAnalyzer {
 	return &BananaAnalyzer{
 		BaseAnalyzer: NewBaseAnalyzer(),
-		logger:      logger,
+		logger:       logger,
 	}
 }
 
@@ -41,9 +41,9 @@ func RGBtoHSV(r, g, b uint32) (h, s, v float64) {
 	} else if max == rf {
 		h = 60 * math.Mod(((gf-bf)/delta), 6)
 	} else if max == gf {
-		h = 60 * (((bf-rf)/delta)+2)
+		h = 60 * (((bf - rf) / delta) + 2)
 	} else if max == bf {
-		h = 60 * (((rf-gf)/delta)+4)
+		h = 60 * (((rf - gf) / delta) + 4)
 	}
 
 	// Saturation
@@ -68,7 +68,7 @@ func (a *BananaAnalyzer) Analyze(imageReader io.Reader) (string, error) {
 
 	avgColor := a.getAverageColor(img)
 	r, g, b, _ := avgColor.RGBA()
-	
+
 	// Normaliza os valores para 8 bits
 	r = r >> 8
 	g = g >> 8
@@ -76,7 +76,7 @@ func (a *BananaAnalyzer) Analyze(imageReader io.Reader) (string, error) {
 
 	// Converte para HSV para melhor análise de cor
 	h, s, v := RGBtoHSV(r, g, b)
-	
+
 	// Log dos valores para debug
 	a.logger.Info("Valores de cor",
 		zap.Uint32("vermelho", r),
@@ -110,4 +110,4 @@ func (a *BananaAnalyzer) Analyze(imageReader io.Reader) (string, error) {
 	}
 
 	return "desconhecido", nil
-} 
+}
