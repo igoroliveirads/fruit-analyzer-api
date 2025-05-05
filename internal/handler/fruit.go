@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"fruit-analyzer-api/internal/analyzer"
@@ -44,6 +45,16 @@ func (h *FruitHandler) HandleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	response := struct {
+		Status string `json:"status"`
+	}{
+		Status: status,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status": "` + status + `"}`))
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error("Erro ao enviar resposta", zap.Error(err))
+		http.Error(w, "Erro ao enviar resposta", http.StatusInternalServerError)
+		return
+	}
 }
