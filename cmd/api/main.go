@@ -2,6 +2,7 @@ package main
 
 import (
 	"fruit-analyzer-api/internal/analyzer"
+	"fruit-analyzer-api/internal/config"
 	"fruit-analyzer-api/internal/handler"
 	"fruit-analyzer-api/internal/server"
 	"fruit-analyzer-api/pkg/logger"
@@ -19,6 +20,7 @@ func main() {
 		// Providers
 		fx.Provide(
 			logger.NewLogger,
+			config.NewConfig,
 			analyzer.NewBananaAnalyzer,
 			fx.Annotate(
 				AsAnalyzer,
