@@ -15,58 +15,112 @@ import (
 
 // Server configura e gerencia o servidor HTTP
 type Server struct {
-	httpServer *http.Server
-	logger     *zap.Logger
-	handler    *handler.FruitHandler
-	config     *config.Config
+	config  *config.Config
+	logger  *zap.Logger
+	handler *handler.FruitAnalyzerHandler
+	server  *http.Server
 }
 
 // NewServer cria uma nova instância do servidor
-func NewServer(logger *zap.Logger, handler *handler.FruitHandler, config *config.Config) *Server {
+func NewServer(
+	cfg *config.Config,
+	logger *zap.Logger,
+	handler *handler.FruitAnalyzerHandler,
+) *Server {
 	return &Server{
-		httpServer: &http.Server{
-			Addr:         fmt.Sprintf(":%d", config.Port),
-			ReadTimeout:  15 * time.Second,
-			WriteTimeout: 15 * time.Second,
-			IdleTimeout:  60 * time.Second,
-		},
+		config:  cfg,
 		logger:  logger,
 		handler: handler,
-		config:  config,
 	}
 }
 
-// corsMiddleware adiciona headers CORS
-func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		for _, origin := range s.config.AllowedOrigins {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-		}
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Max-Age", "86400")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
+func (s *Server) Start() error {
+	// Configurar o servidor HTTP
+	s.server = &http.Server{
+		Addr:         fmt.Sprintf(":%d", s.config.Server.Port),
+		Handler:      s.setupRoutes(),
+		ReadTimeout:  s.config.Server.ReadTimeout,
+		WriteTimeout: s.config.Server.WriteTimeout,
 	}
+
+	// Iniciar o servidor em uma goroutine
+	go func() {
+		s.logger.Info("Iniciando servidor",
+			zap.Int("port", s.config.Server.Port),
+		)
+		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			s.logger.Fatal("Erro ao iniciar servidor",
+				zap.Error(err),
+			)
+		}
+	}()
+
+	return nil
 }
 
-// RegisterHooks registra os hooks do ciclo de vida do servidor
-func (s *Server) RegisterHooks(lifecycle fx.Lifecycle) {
-	lifecycle.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			s.logger.Info(fmt.Sprintf("Servidor iniciado na porta %d", s.config.Port))
-			http.HandleFunc("/analyze", s.corsMiddleware(s.handler.HandleAnalyze))
-			go s.httpServer.ListenAndServe()
-			return nil
-		},
-		OnStop: func(ctx context.Context) error {
-			s.logger.Info("Servidor sendo encerrado")
-			return s.httpServer.Shutdown(ctx)
-		},
+func (s *Server) Stop(ctx context.Context) error {
+	s.logger.Info("Encerrando servidor")
+
+	// Criar um contexto com timeout para o shutdown
+	shutdownCtx, cancel := context.WithTimeout(ctx, s.config.Server.ShutdownTimeout)
+	defer cancel()
+
+	// Tentar fazer o shutdown gracioso
+	if err := s.server.Shutdown(shutdownCtx); err != nil {
+		s.logger.Error("Erro ao encerrar servidor graciosamente",
+			zap.Error(err),
+		)
+		return s.server.Close()
+	}
+
+	return nil
+}
+
+func (s *Server) setupRoutes() http.Handler {
+	mux := http.NewServeMux()
+
+	// Middleware para logging
+	mux.Handle("/analyze", s.loggingMiddleware(s.handler.AnalyzeFruit))
+
+	return mux
+}
+
+func (s *Server) loggingMiddleware(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Criar um response writer customizado para capturar o status code
+		rw := newResponseWriter(w)
+
+		// Chamar o próximo handler
+		next.ServeHTTP(rw, r)
+
+		// Log da requisição
+		s.logger.Info("Requisição processada",
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+			zap.Int("status", rw.statusCode),
+			zap.Duration("duration", time.Since(start)),
+		)
 	})
+}
+
+// ResponseWriter customizado para capturar o status code
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func newResponseWriter(w http.ResponseWriter) *responseWriter {
+	return &responseWriter{w, http.StatusOK}
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Provider para fx
+func ProvideServer() fx.Option {
+	return fx.Provide(NewServer)
 }
